@@ -1,4 +1,4 @@
-name: earthcube
+name: GDP_earthcube
 channels:
   - conda-forge
 dependencies:
