@@ -2,6 +2,10 @@
 data/raw/drifter_*.nc
 data/gdp_*.nc
 data/gdp_*.parquet
+data/*.nc
+
+*.nc
+*.png
 
 # dask folder
 dask-worker-space/
