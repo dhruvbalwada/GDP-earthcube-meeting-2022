@@ -35,7 +35,7 @@ def retrieve_year(ds, year) -> xr.Dataset:
 class structtype():
     pass
 
-def ds2trajstruct(ds):
+def ds2trajstruct(ds, filt_flag=0):
     # Fundction to return separated out trajectories in 
     # a matlab structure like dataformat.
     
@@ -52,6 +52,9 @@ def ds2trajstruct(ds):
         trajs[i].u   = ds.ve[traj_idx[i]:traj_idx[i+1]]
         trajs[i].v   = ds.vn[traj_idx[i]:traj_idx[i+1]]
         trajs[i].time= ds.time[traj_idx[i]:traj_idx[i+1]]
+        if filt_flag == 1:
+            trajs[i].u_lp   = ds.u_lp[traj_idx[i]:traj_idx[i+1]]
+            trajs[i].v_lp   = ds.v_lp[traj_idx[i]:traj_idx[i+1]]
 
     return trajs
 
@@ -68,7 +71,7 @@ def year_hours_2_time(year, hours_index):
     time = np.datetime64(str(year), 'Y') + (np.datetime64(hours_index, 'h') - np.datetime64(0, 'h'))
     return time
 
-def trajstruct2arrays(trajs, year):
+def trajstruct2posarrays(trajs, year):
     
     num_traj = len(trajs)
     
@@ -76,8 +79,8 @@ def trajstruct2arrays(trajs, year):
 
     lon_array = np.NaN*np.ones((num_traj, hours_per_year))
     lat_array = np.NaN*np.ones((num_traj, hours_per_year))
-    u_array = np.NaN*np.ones((num_traj, hours_per_year))
-    v_array = np.NaN*np.ones((num_traj, hours_per_year))
+    #u_array = np.NaN*np.ones((num_traj, hours_per_year))
+    #v_array = np.NaN*np.ones((num_traj, hours_per_year))
     
     start_year = np.datetime64(str(year) + '-01-01')
     
@@ -88,11 +91,39 @@ def trajstruct2arrays(trajs, year):
 
         lon_array[i, hour_index] = trajs[i].lon
         lat_array[i, hour_index] = trajs[i].lat
-        u_array[i, hour_index] = trajs[i].u
-        v_array[i, hour_index] = trajs[i].v
+        #u_array[i, hour_index] = trajs[i].u
+        #v_array[i, hour_index] = trajs[i].v
         
-    return lon_array, lat_array, u_array, v_array
+    return lon_array, lat_array#, u_array, v_array
 
+def trajstruct2velarrays(trajs, year, vel_type='full'):
+    
+    num_traj = len(trajs)
+    
+    hours_per_year = get_hours_per_year(year)
+
+    u_array = np.NaN*np.ones((num_traj, hours_per_year))
+    v_array = np.NaN*np.ones((num_traj, hours_per_year))
+    
+    start_year = np.datetime64(str(year) + '-01-01')
+    
+    for i in range(num_traj):
+    
+        hour_index = ((trajs[i].time - start_year).astype('int')/1e9/3600).values.astype('int')
+        # we do this because there can be gaps in data
+
+        #lon_array[i, hour_index] = trajs[i].lon
+        #lat_array[i, hour_index] = trajs[i].lat
+        if vel_type == 'full':
+            u_array[i, hour_index] = trajs[i].u
+            v_array[i, hour_index] = trajs[i].v
+        elif vel_type == 'lp':
+            u_array[i, hour_index] = trajs[i].u_lp
+            v_array[i, hour_index] = trajs[i].v_lp
+        elif vel_type == 'hp':
+            u_array[i, hour_index] = trajs[i].u - trajs[i].u_lp
+            v_array[i, hour_index] = trajs[i].v - trajs[i].v_lp
+    return u_array, v_array
 
 ## Functions that will be used by pdist
 def dist_rx(XI, XJ):
@@ -119,7 +150,7 @@ def dist_geo(XI,XJ):
     return dist
 
 ## 
-def trajarrays2timepairs(trajarrays, year):
+def trajarrays2timepairs(trajarrays, year, filt_flag=0):
     
     hours_per_year = get_hours_per_year(year)
     #print(hours_per_year)
@@ -131,12 +162,27 @@ def trajarrays2timepairs(trajarrays, year):
         Y = trajarrays['lat_array'][:,i]
         U = trajarrays['u_array'][:,i]
         V = trajarrays['v_array'][:,i]
+        
+                
+        if filt_flag==1:
+            U_lp = trajarrays['u_lp_array'][:,i]
+            V_lp = trajarrays['v_lp_array'][:,i]
+            U_hp = trajarrays['u_hp_array'][:,i]
+            V_hp = trajarrays['v_hp_array'][:,i]
 
         # remove nans
         Y = Y[~np.isnan(X)]
         U = U[~np.isnan(X)]
         V = V[~np.isnan(X)]
+        if filt_flag==1:
+            U_lp = U_lp[~np.isnan(X)]
+            V_lp = V_lp[~np.isnan(X)]
+            U_hp = U_hp[~np.isnan(X)]
+            V_hp = V_hp[~np.isnan(X)]
+            
         X = X[~np.isnan(X)]
+        
+        
 
         Xvec = np.concatenate((np.expand_dims(X, 1), np.expand_dims(Y, 1)), axis=1)
 
@@ -156,15 +202,34 @@ def trajarrays2timepairs(trajarrays, year):
         pairs_time[i].dul = dux*rx + duy*ry;
         pairs_time[i].dut = duy*rx - dux*ry;
         
+        if filt_flag == 1:
+            dux_lp = pdist(np.expand_dims(U_lp, 1), dist_du);
+            duy_lp = pdist(np.expand_dims(V_lp, 1), dist_du);
+
+            pairs_time[i].dul_lp = dux_lp*rx + duy_lp*ry;
+            pairs_time[i].dut_lp = duy_lp*rx - dux_lp*ry;
+            
+            dux_hp = pdist(np.expand_dims(U_hp, 1), dist_du);
+            duy_hp = pdist(np.expand_dims(V_hp, 1), dist_du);
+
+            pairs_time[i].dul_hp = dux_hp*rx + duy_hp*ry;
+            pairs_time[i].dut_hp = duy_hp*rx - dux_hp*ry;
+                  
+        
         pairs_time[i].time = year_hours_2_time(year, i)
         
     return pairs_time
 
-def timepairs2list(timepairs, year):
+def timepairs2list(timepairs, year, filt_flag=0):
     dul = np.array([])
     dut = np.array([])
     dist = np.array([])
     time = np.array([]).astype('datetime64')
+    if filt_flag==1:
+        dul_lp = np.array([])
+        dut_lp = np.array([])        
+        dul_hp = np.array([])
+        dut_hp = np.array([])        
     
     hours_per_year = get_hours_per_year(year)
     
@@ -174,7 +239,16 @@ def timepairs2list(timepairs, year):
         dist = np.append(dist, timepairs[i].dist)
         time = np.append(time, timepairs[i].time + np.zeros_like(timepairs[i].dist).astype('long'))
         
-    return dul, dut, dist, time
+        if filt_flag==1:
+            dul_lp = np.append(dul_lp, timepairs[i].dul_lp)
+            dut_lp = np.append(dut_lp, timepairs[i].dut_lp)
+            dul_hp = np.append(dul_hp, timepairs[i].dul_hp)
+            dut_hp = np.append(dut_hp, timepairs[i].dut_hp)
+            
+    if filt_flag==0:
+        return dul, dut, dist, time
+    elif filt_flag==1:
+        return dul, dut, dist, time, dul_lp, dut_lp, dul_hp, dut_hp
 
 def helmholtz_decompose(dist_axis, SF2ll, SF2tt): 
     SF2rr = np.zeros_like(SF2ll)
