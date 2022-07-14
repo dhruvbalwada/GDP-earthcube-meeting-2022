@@ -6,6 +6,7 @@ data/*.nc
 
 *.nc
 *.png
+*.pdf
 
 # dask folder
 dask-worker-space/
